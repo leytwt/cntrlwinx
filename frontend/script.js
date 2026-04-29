@@ -114,6 +114,14 @@ function bindEvents() {
     document.getElementById('nextSlide').addEventListener('click', () => navSlide(1));
     document.getElementById('downloadBtn').addEventListener('click', download);
     document.getElementById('resetBtn').addEventListener('click', reset);
+
+    // Установка начального placeholder для всех полей с data-*-placeholder
+    document.querySelectorAll('textarea[data-ru-placeholder][data-en-placeholder], input[data-ru-placeholder][data-en-placeholder]').forEach(el => {
+        const ph = el.getAttribute(`data-${currentLang}-placeholder`);
+        if (ph) {
+            el.placeholder = ph;
+        }
+    });
 }
 
 function toggleTheme() {
@@ -134,16 +142,24 @@ function toggleLanguage() {
     applyLanguage(currentLang);
 }
 
+// ============================================
+// Функция смены языка на сайте
+// ============================================
 function applyLanguage(lang) {
     document.documentElement.lang = lang;
     document.getElementById('langText').textContent = lang === 'ru' ? 'RU' : 'EN';
 
+    // Обработка всех элементов с data-ru/data-en
     document.querySelectorAll('[data-ru][data-en]').forEach(el => {
         const text = el.getAttribute(`data-${lang}`);
         if (text === null) return;
+
         if (el.tagName === 'TEXTAREA') {
+            // Обновляем placeholder
             const ph = el.getAttribute(`data-${lang}-placeholder`);
-            if (ph !== null) el.placeholder = ph;
+            if (ph !== null) {
+                el.placeholder = ph;
+            }
         } else if (el.tagName === 'OPTION') {
             el.textContent = text;
         } else if (!el.querySelector('[data-ru]')) {
@@ -151,15 +167,29 @@ function applyLanguage(lang) {
         }
     });
 
+    // Дополнительно: обновляем placeholder для всех textarea с data-*-placeholder
+    document.querySelectorAll('textarea[data-ru-placeholder][data-en-placeholder]').forEach(el => {
+        const ph = el.getAttribute(`data-${lang}-placeholder`);
+        if (ph !== null) {
+            el.placeholder = ph;
+        }
+    });
+
+    // Обновляем title атрибуты
     document.querySelectorAll('[data-ru-title][data-en-title]').forEach(el => {
         const t = el.getAttribute(`data-${lang}-title`);
         if (t !== null) el.title = t;
     });
 
+    // Обновляем hero элементы
     const heroSubtitle = document.querySelector('.hero-subtitle');
     const heroQuote = document.querySelector('.hero-quote');
-    if (heroSubtitle) heroSubtitle.textContent = heroSubtitle.getAttribute(`data-${lang}`);
-    if (heroQuote) heroQuote.textContent = heroQuote.getAttribute(`data-${lang}`);
+    if (heroSubtitle) {
+        heroSubtitle.textContent = heroSubtitle.getAttribute(`data-${lang}`);
+    }
+    if (heroQuote) {
+        heroQuote.textContent = heroQuote.getAttribute(`data-${lang}`);
+    }
 }
 
 function t(key) { return translations[currentLang]?.[key] || key; }
@@ -236,7 +266,6 @@ async function generate() {
 
         updateProgress(100, t('done'));
 
-        // Парсим PPTX чтобы показать реальные слайды
         slides = await parsePptx(pptBlob);
         currentSlide = 0;
 
@@ -244,7 +273,6 @@ async function generate() {
             setLoading(false);
             showSlides();
 
-            // Все шаги зеленые
             document.querySelectorAll('.step').forEach(st => {
                 st.classList.remove('active');
                 st.classList.add('completed');
@@ -261,28 +289,18 @@ async function generate() {
     }
 }
 
-// ============================================
-// ФУНКЦИЯ ПАРСИНГА PPTX (parsePptx)
-// ============================================
 async function parsePptx(blob) {
     try {
-        // Преобразуем Blob в Uint8Array для fflate
         const arrayBuffer = await blob.arrayBuffer();
         const uint8Array = new Uint8Array(arrayBuffer);
-
-        // Распаковываем ZIP (PPTX - это ZIP архив)
         const unzipped = fflate.unzipSync(uint8Array);
-
-        // Находим файлы слайдов
         const slideFiles = [];
 
         for (const [filename, data] of Object.entries(unzipped)) {
             const match = filename.match(/^ppt\/slides\/slide(\d+)\.xml$/);
             if (match) {
-                // Декодируем XML из Uint8Array
                 const decoder = new TextDecoder('utf-8');
                 const xmlText = decoder.decode(data);
-
                 slideFiles.push({
                     num: parseInt(match[1]),
                     xml: xmlText
@@ -290,29 +308,20 @@ async function parsePptx(blob) {
             }
         }
 
-        // Сортируем по номеру слайда
         slideFiles.sort((a, b) => a.num - b.num);
-
-        console.log(`📄 Найдено ${slideFiles.length} слайдов в PPTX`);
-
         const slides = [];
 
         for (const sf of slideFiles) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(sf.xml, 'text/xml');
-
-            // Извлекаем все текстовые элементы из XML
             const textElements = xmlDoc.getElementsByTagName('a:t');
             const texts = [];
 
             for (let i = 0; i < textElements.length; i++) {
                 const text = textElements[i].textContent;
-                if (text && text.trim()) {
-                    texts.push(text.trim());
-                }
+                if (text && text.trim()) texts.push(text.trim());
             }
 
-            // Первый значимый текст - заголовок, остальные - пункты
             const title = texts[0] || `Слайд ${sf.num}`;
             const items = texts.slice(1);
 
@@ -325,17 +334,10 @@ async function parsePptx(blob) {
             });
         }
 
-        if (slides.length > 0) {
-            console.log(`✅ Успешно распарсено ${slides.length} слайдов`);
-            return slides;
-        }
-
+        if (slides.length > 0) return slides;
     } catch (e) {
         console.log('⚠️ Ошибка парсинга PPTX:', e.message);
     }
-
-    // Fallback: демо-слайды
-    console.log('🔄 Использую демо-слайды');
     return generateDemoSlides();
 }
 
