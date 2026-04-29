@@ -21,7 +21,9 @@ DARK_BG = RGBColor(12, 18, 32)
 CARD_BG = RGBColor(22, 28, 45)
 WHITE = RGBColor(255, 255, 255)
 SOFT_TEXT = RGBColor(203, 213, 225)
+LIGHT_LINE = RGBColor(59, 130, 246)
 
+# default theme
 DEFAULT_ACCENT = RGBColor(59, 130, 246)
 
 
@@ -31,8 +33,9 @@ DEFAULT_ACCENT = RGBColor(59, 130, 246)
 
 def resolve_theme_from_prompt(prompt: str):
     """
-    Пользователь управляет цветом презентации:
-    pink / blue / purple / gold / default dark
+    User controls colors:
+    pink / blue / black / gold etc.
+    If nothing specified → premium dark default
     """
 
     text = prompt.lower()
@@ -79,18 +82,8 @@ def resolve_theme_from_prompt(prompt: str):
 
 
 # =====================================
-# BASE HELPERS
+# BASE BLOCKS
 # =====================================
-
-def split_content(content):
-    if ";" in content:
-        return [x.strip() for x in content.split(";") if x.strip()]
-
-    if "\n" in content:
-        return [x.strip() for x in content.split("\n") if x.strip()]
-
-    return [content]
-
 
 def add_background(slide, prs, bg_color):
     bg = slide.shapes.add_shape(
@@ -105,7 +98,7 @@ def add_background(slide, prs, bg_color):
     bg.fill.fore_color.rgb = bg_color
     bg.line.fill.background()
 
-    # отправляем назад
+    # send to back
     slide.shapes._spTree.remove(bg._element)
     slide.shapes._spTree.insert(2, bg._element)
 
@@ -124,8 +117,18 @@ def add_accent_line(slide, accent_color):
     line.line.fill.background()
 
 
+def split_content(content):
+    if ";" in content:
+        return [x.strip() for x in content.split(";") if x.strip()]
+
+    if "\n" in content:
+        return [x.strip() for x in content.split("\n") if x.strip()]
+
+    return [content]
+
+
 # =====================================
-# SAFE TEXT ZONES
+# SAFE ZONES (NO OVERLAPS)
 # =====================================
 
 def add_title(
@@ -135,22 +138,25 @@ def add_title(
     image_on_left=False
 ):
     """
-    Title never touches image
+    Hard safe-zone:
+    title NEVER touches image
     """
 
     left = Inches(6.7) if image_on_left else Inches(0.8)
 
+    # if title is too long → make image smaller later
+    width = Inches(5.0)
+
     box = slide.shapes.add_textbox(
         left,
         Inches(0.8),
-        Inches(4.8),
+        width,
         Inches(1.4)
     )
 
     tf = box.text_frame
-    tf.word_wrap = True
-
     p = tf.paragraphs[0]
+
     p.text = text
     p.font.size = Pt(24)
     p.font.bold = True
@@ -166,20 +172,25 @@ def add_content(
     """
     HARD SAFE TEXT ZONE
     Текст никогда не уходит под картинку
+    + нормальный перенос строк
     """
 
     left = Inches(6.7) if image_on_left else Inches(0.8)
 
+    # делаем уже зону текста
+    width = Inches(4.4)
+
     box = slide.shapes.add_textbox(
         left,
         Inches(2.0),
-        Inches(4.4),
+        width,
         Inches(4.2)
     )
 
     tf = box.text_frame
-    tf.word_wrap = True
 
+    # ВАЖНО:
+    tf.word_wrap = True
     tf.margin_left = 0
     tf.margin_right = 0
     tf.margin_top = 0
@@ -190,16 +201,15 @@ def add_content(
     for i, point in enumerate(points[:4]):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
 
+        # без ручного bullet символа
+        # PowerPoint сам переносит лучше
         p.text = point
+
         p.font.size = Pt(16)
         p.font.color.rgb = text_color
         p.space_after = Pt(14)
         p.level = 0
 
-
-# =====================================
-# IMAGE CARD
-# =====================================
 
 def add_image_card(
     slide,
@@ -209,6 +219,7 @@ def add_image_card(
 ):
     """
     Premium rounded image card
+    визуально выглядит как rounded image
     """
 
     left = Inches(0.8) if image_on_left else Inches(6.4)
@@ -218,7 +229,7 @@ def add_image_card(
 
     top = Inches(1.2)
 
-    # rounded card
+    # внешняя rounded card
     card = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
         left,
@@ -228,9 +239,10 @@ def add_image_card(
     )
 
     card.fill.solid()
-    card.fill.fore_color.rgb = CARD_BG
+    card.fill.fore_color.rgb = RGBColor(28, 35, 55)
     card.line.fill.background()
 
+    # внутренние отступы
     padding = Inches(0.18)
 
     image_left = left + padding
@@ -238,6 +250,7 @@ def add_image_card(
     image_width = card_width - (padding * 2)
     image_height = card_height - (padding * 2)
 
+    # картинка идеально внутри
     slide.shapes.add_picture(
         image_path,
         image_left,
@@ -246,7 +259,7 @@ def add_image_card(
         height=image_height
     )
 
-    # soft border
+    # мягкая overlay-рамка
     border = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
         left,
@@ -264,35 +277,32 @@ def add_image_card(
 # SMART IMAGE PROMPTS
 # =====================================
 
-def build_image_prompt(title, content, slide_type):
+def build_image_prompt(title, slide_type):
     """
-    Более умные prompts
-    чтобы картинки не повторялись
+    Prevent repeated photos
     """
 
     mapping = {
-        "problem": "business challenge, pain point, professional illustration",
-        "solution": "startup solution, innovation, consulting visual",
-        "market": "market growth, analytics dashboard, charts",
-        "team": "professional business team, leadership, office",
-        "finance": "financial report, revenue growth, dashboard",
-        "timeline": "roadmap, business strategy timeline",
-        "comparison": "comparison strategy, analysis visual",
-        "summary": "executive summary, premium consulting slide"
+        "problem": "business problem visual",
+        "solution": "startup solution illustration",
+        "market": "market growth analytics visual",
+        "team": "professional startup team",
+        "finance": "financial dashboard visual",
+        "timeline": "business roadmap visual",
+        "comparison": "comparison strategy visual",
+        "summary": "executive presentation visual"
     }
 
     base = mapping.get(
         slide_type,
-        "modern professional business presentation"
+        "modern business consulting visual"
     )
 
     return (
         f"{title}, "
-        f"{content[:150]}, "
         f"{base}, "
-        f"clean premium presentation style, "
-        f"high quality illustration, "
-        f"unique business visual"
+        f"premium presentation style, "
+        f"minimal professional composition"
     )
 
 
@@ -307,6 +317,7 @@ def create_pptx(slides_data: list) -> str:
 
     image_service = ImageService()
 
+    # theme from first user title
     main_prompt = slides_data[0].get("title", "")
     theme = resolve_theme_from_prompt(main_prompt)
 
@@ -315,9 +326,11 @@ def create_pptx(slides_data: list) -> str:
     title_color = theme["title"]
     text_color = theme["text"]
 
-    # только content slides
-    # без cover
-    # без final slide
+    # =====================================
+    # ONLY CONTENT SLIDES
+    # no cover
+    # no final slide
+    # =====================================
 
     for index, slide_data in enumerate(slides_data):
         title = slide_data.get("title", "Без названия")
@@ -329,7 +342,7 @@ def create_pptx(slides_data: list) -> str:
         # alternating layout
         image_on_left = (index % 2 == 1)
 
-        # если title длинный → уменьшаем image
+        # if title too long → smaller image
         smaller_image = len(title) > 42
 
         add_background(
@@ -360,7 +373,6 @@ def create_pptx(slides_data: list) -> str:
         try:
             image_prompt = build_image_prompt(
                 title,
-                content,
                 slide_type
             )
 
@@ -376,15 +388,11 @@ def create_pptx(slides_data: list) -> str:
                 image_on_left=image_on_left,
                 smaller=smaller_image
             )
-
-            print(f"Image added: {image_path}")
-
-            # удаляем временную картинку
             if os.path.exists(image_path):
                 os.remove(image_path)
-                print(
-                    f"Temporary image deleted: {image_path}"
-                )
+                print(f"Temporary image deleted: {image_path}")
+
+            print(f"Image added: {image_path}")
 
         except Exception as e:
             print(f"Image skipped: {str(e)}")
